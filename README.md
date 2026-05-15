@@ -1,99 +1,382 @@
-# Report Quiz 2 DAA : Deadlock Chase (V2)
+# 🎮 Deadlock Chase — Analysis Report
 
 | Nama              | NRP        |
 |-------------------|------------|
-| Raziq Danish Safaraz          | 5025241229      |
-| Aminnudin Wijaya          | 5025241229      |
+| Raziq Danish Safaraz          | 5025241258      |
+| Aminnudin Wijaya          | 5025241242      |
 | Herdian Tri Wardhana           | 5025241229      |
+
+---
+
+## Daftar Isi
+
+- [1. Design](#1-design)
+  - [1.1 Deskripsi Game](#11-deskripsi-game)
+  - [1.2 Rancangan Ruang Permainan](#12-rancangan-ruang-permainan)
+  - [1.3 Elemen Entitas](#13-elemen-entitas)
+  - [1.4 Paradigma Algoritma](#14-paradigma-algoritma)
+- [2. Implementation](#2-implementation)
+  - [2.1 Arsitektur & Struktur Proyek](#21-arsitektur--struktur-proyek)
+  - [2.2 Struktur Data Utama](#22-struktur-data-utama)
+  - [2.3 Mekanika AI — GhostAI](#23-mekanika-ai--ghostai)
+  - [2.4 Mekanika Player — PlayerController](#24-mekanika-player--playercontroller)
+  - [2.5 Sistem Pergerakan — CubeRoller](#25-sistem-pergerakan--cuberoller)
+  - [2.6 Sistem Power-Up & Collectible](#26-sistem-power-up--collectible)
+  - [2.7 Sistem Portal & Teleportasi](#27-sistem-portal--teleportasi)
+  - [2.8 Manajemen Scene & UI](#28-manajemen-scene--ui)
+- [3. Evaluation](#3-evaluation)
+  - [3.1 Analisis Kompleksitas Waktu](#31-analisis-kompleksitas-waktu)
+  - [3.2 Analisis Kompleksitas Ruang](#32-analisis-kompleksitas-ruang)
+  - [3.3 Efisiensi Struktur Data](#33-efisiensi-struktur-data)
+  - [3.4 Jaminan Kebenaran (Correctness)](#34-jaminan-kebenaran-correctness)
+  - [3.5 Identifikasi Bottleneck & Potensi Optimasi](#35-identifikasi-bottleneck--potensi-optimasi)
+- [4. Conclusion](#4-conclusion)
+
+---
 
 ## 1. Design
 
-### 1.1 Deskripsi Umum
+### 1.1 Deskripsi Game
 
-Deadlock Chase dirancang sebagai permainan berbasis *grid* 2 dimensi berukuran **32 × 32 sel**. Setiap sel merepresentasikan satu unit ruang permainan diskret yang dapat ditempati oleh entitas (pemain maupun hantu). Pilihan desain ini memastikan bahwa seluruh logika navigasi dapat dimodelkan secara matematis dengan tepat, menghindari ambiguitas posisi yang lazim terjadi pada ruang kontinu.
+**Deadlock Chase** adalah game *survival-chase* 3D berbasis **grid diskret** yang dibangun di atas Unity Engine. Pemain mengendalikan sebuah kubus yang bergerak step-by-step pada arena grid, menghindari kejaran **Ghost** (musuh AI) yang menggunakan algoritma pathfinding cerdas, sambil mengumpulkan collectible dan power-up untuk bertahan selama mungkin dan mengumpulkan skor tertinggi.
 
-### 1.2 Representasi Masalah: Graf Berbobot Seragam
+### 1.2 Rancangan Ruang Permainan
 
-Ruang permainan direpresentasikan sebagai **graf tak-berarah berbobot seragam** $G = (V, E, W)$, dengan:
+Ruang permainan direpresentasikan sebagai sebuah **Grid 2D berukuran W × H** (default 32 × 32 = 1.024 sel) yang di-overlay di atas arena 3D. Setiap sel grid dipetakan satu-ke-satu ke posisi dunia (`worldPosition`) dan memiliki atribut biner `isWalkable` yang ditentukan melalui **Physics Sphere-Check** terhadap `obstacleMask` pada saat inisialisasi.
 
-* **Vertices** $V$: Himpunan simpul yang direpresentasikan oleh matriks dua dimensi `nodes[x, y]`, di mana setiap elemen merupakan objek `Node` yang menyimpan status dan biaya lintasan.
-* **Edges** $E$: Koneksi 4-arah (*cardinal directions*) antar simpul bertetangga yang hanya terbentuk apabila atribut `isWalkable` bernilai *true*, secara efektif mengenkode geometri rintangan ke dalam struktur graf.
-* **Weight** $W$: Bobot seragam $w = 1$ untuk setiap perpindahan antar simpul, menyederhanakan masalah pencarian jalur terpendek menjadi persoalan minimisasi jumlah langkah.
+**Representasi Masalah — Weighted Graph (Uniform Cost):**
 
-### 1.3 Penerapan Algoritma Greedy
+Grid tersebut secara implisit membentuk sebuah **graph berbobot seragam** G = (V, E) di mana:
 
-Algoritma yang diterapkan adalah **Dijkstra**, yang diklasifikasikan dalam paradigma **Greedy**. Pada setiap iterasi, algoritma secara konsisten memilih simpul dengan nilai `gCost` (akumulasi biaya dari titik awal) terkecil dari *open set*. Pilihan lokal optimal ini, dalam konteks graf tanpa bobot negatif, secara matematis terbukti menghasilkan **solusi global optimal**.
+- **V** = himpunan seluruh node yang `isWalkable == true`.
+- **E** = himpunan edge 4-connected adjacency (atas, bawah, kiri, kanan) dengan bobot konstan **w = 1**.
 
-### 1.4 Dasar Teori
+### 1.3 Elemen Entitas
 
-Kebenaran algoritma Dijkstra sebagai solusi optimal bertumpu pada dua properti fundamental:
+| Entitas | Deskripsi |
+|---|---|
+| **Player (Cube)** | Entitas yang dikendalikan pemain, bergerak step-by-step pada grid dengan mekanisme rolling 90°. |
+| **Ghost (Enemy AI)** | Entitas musuh otonom yang mengejar player menggunakan Dijkstra's pathfinding. |
+| **Collectibles** | Objek yang di-spawn secara stokastik pada node walkable acak; memberikan skor. |
+| **Power-Ups** | Variasi collectible yang memberikan efek khusus: *Invincible*, *Freeze Ghost*, *Unlimited Stamina*. |
+| **Portal (Teleporter)** | Mekanisme teleportasi instan antar dua titik pada grid. |
 
-* **Optimal Substructure:** Masalah pencarian jalur terpendek memiliki sifat bahwa jalur optimal dari simpul sumber $s$ ke tujuan $t$ selalu mengandung jalur-jalur terpendek menuju setiap simpul perantara $v$ di sepanjang rute tersebut. Properti ini memungkinkan konstruksi solusi akhir secara inkremental dari solusi sub-permasalahan yang lebih kecil, sehingga menjustifikasi pendekatan pemrograman dinamis implisit di balik algoritma Dijkstra.
-* **Greedy Choice Property:** Dengan tidak adanya bobot negatif, keputusan greedy untuk selalu mengekspansi simpul berbiaya terendah tidak akan pernah perlu direvisi, memastikan bahwa setiap simpul yang masuk ke *closed set* telah ditetapkan jarak optimalnya secara permanen.
+### 1.4 Paradigma Algoritma
+
+#### A. Dijkstra's Shortest Path Algorithm
+
+Algoritma inti yang digunakan untuk AI pathfinding Ghost adalah **Dijkstra's Algorithm**. Pemilihan ini didasarkan pada properti berikut:
+
+-  Jika P* adalah jalur terpendek dari node `s` ke node `t` yang melewati node `v`, maka sub-jalur `s → v` dan `v → t` juga merupakan jalur terpendek masing-masing. Properti ini dipenuhi karena bobot edge non-negatif (w = 1 ≥ 0).
+- Pada setiap iterasi, Dijkstra memilih node dengan `gCost` minimum dari *open set*. Keputusan greedy ini bersifat **safe** karena semua bobot ≥ 0, menjamin bahwa node yang di-extract tidak akan pernah diperbarui lagi.
+- Dijkstra menjamin **shortest path** pada graph dengan bobot non-negatif. Karena semua edge memiliki bobot 1 (uniform), algoritma ini ekuivalen secara output dengan BFS, namun diimplementasikan dengan struktur Dijkstra.
+
+#### B. Greedy Heuristic — Speed Boost AI
+
+Ghost AI menerapkan mekanisme **Random Speed Boost** — sebuah strategi *stochastic greedy*:
+
+Setiap interval acak `t ∈ [minWait, maxWait]`, kecepatan Ghost digandakan selama `boostDuration` detik.
+
+#### C. Stochastic Spawning (Randomized Greedy)
+
+Sistem spawning collectible menggunakan **Randomized Selection** dengan probabilitas:
+
+- `P(PowerUp) = powerUpChance / 100`, sisanya normal collectible (default 30% power-up).
+- Posisi spawn dipilih secara **uniform random** dari node walkable, dengan eksklusi posisi player (greedy constraint untuk fairness).
 
 ---
 
 ## 2. Implementation
 
-### 2.1 Struktur Code
+### 2.1 Arsitektur & Struktur Proyek
+```
+Assets/Scripts/
+├── Algorithms/          # Algoritma pathfinding
+│   ├── DijkstraPathfinding.cs
+│   └── Node.cs
+├── Core/                # Manager & sistem inti
+│   ├── GridManager.cs
+│   ├── CollectibleManager.cs
+│   ├── PowerUpManager.cs
+│   └── SceneTransitionManager.cs
+├── Entities/            # Logika entitas game
+│   ├── GhostAI.cs
+│   └── PlayerController.cs
+├── Environment/         # Objek lingkungan
+│   ├── Collectible.cs
+│   ├── CollectibleRotator.cs
+│   └── UniversalPortal.cs
+├── Movement/            # Sistem pergerakan
+│   └── CubeRoller.cs
+└── UI/                  # Antarmuka pengguna
+    ├── CountdownManager.cs
+    ├── GameOverUI.cs
+    ├── HoldToQuit.cs
+    └── SceneTrigger.cs
+```
 
-Implementasi pada kode `C#` memanfaatkan dua struktur data primer yang dipilih dengan pertimbangan performa:
+**Pola Desain :**
 
-* **`List<Node>` (Open Set):** Menyimpan simpul-simpul kandidat yang akan diekspansi. Pemilihan simpul dengan `gCost` minimum dilakukan melalui iterasi linear, yang merupakan area dengan potensi optimasi lebih lanjut (lihat bagian Evaluasi).
-* **`HashSet<Node>` (Closed Set):** Menyimpan simpul-simpul yang telah diproses sepenuhnya. Penggunaan `HashSet` secara krusial memberikan kompleksitas pencarian rata-rata $O(1)$ untuk operasi `Contains()`, berbanding terbalik dengan `List.Contains()` yang memerlukan $O(n)$.
+| Pattern | Lokasi | Tujuan |
+|---|---|---|
+| **Singleton** | `GridManager`, `CollectibleManager`, `PowerUpManager`, `CountdownManager`, `SceneTransitionManager` | Menjamin satu instance global dan akses lintas-komponen. |
+| **Component-Based** | Seluruh `MonoBehaviour` | Pemisahan behavior ke komponen independen sesuai paradigma Unity. |
+| **Observer (via Unity Events)** | `OnTriggerEnter`, Coroutines | Interaksi reaktif antar entitas melalui collision callback. |
+| **Separation of Concerns** | Folder `Algorithms/`, `Core/`, `Entities/`, dll. | Pemisahan tanggung jawab secara modular. |
 
-### 2.2 Mekanika AI Ghost (Algoritma Dijkstra)
+### 2.2 Struktur Data Utama
 
-Alur eksekusi algoritma pada fungsi `FindPath()` berjalan sebagai berikut:
+| Struktur Data | Lokasi | Tujuan |
+|---|---|---|
+| `Node[,]` (2D Array) | `GridManager.cs` | Menyimpan seluruh node grid; akses O(1) via indeks `[x, y]`. |
+| `Node` (Class) | `Node.cs` | Menyimpan `gridPosition`, `worldPosition`, `isWalkable`, `gCost`, `parent`. |
+| `List<Node>` (Open Set) | `DijkstraPathfinding.cs` | Daftar node yang belum dieksplorasi (linear scan untuk extract-min). |
+| `HashSet<Node>` (Closed Set) | `DijkstraPathfinding.cs` | Himpunan node yang telah dieksplorasi; lookup O(1) amortized. |
+| `List<Node>` (Path) | `GhostAI.cs` | Menyimpan jalur hasil pathfinding dari Ghost ke Player. |
 
-1. **Inisialisasi:** Simpul awal (`startNode`) dimasukkan ke dalam `openSet`.
-2. **Seleksi Greedy:** Pada setiap iterasi, simpul `currentNode` dengan `gCost` terkecil dipilih dari `openSet` melalui iterasi linear.
-3. **Terminasi Dini:** Jika `currentNode` sama dengan `targetNode`, rekonstruksi jalur dilakukan via `RetracePath()` menggunakan rantai pointer `parent`.
-4. **Ekspansi Tetangga:** Setiap simpul tetangga yang *walkable* dan belum ada di `closedSet` dievaluasi. Jika biaya baru lebih kecil, `gCost` dan `parent` diperbarui, lalu simpul ditambahkan ke `openSet`.
-5. **Terminasi Gagal:** Jika `openSet` habis tanpa menemukan target, fungsi mengembalikan `null`.
+### 2.3 Mekanika AI — GhostAI
 
-### 2.3 Mekanika Fisika dan Integrasi Visual
+Berikut alur keputusan Ghost AI setiap langkah:
 
-* **Rotasi Cube Roller:** Menggunakan `Quaternion.AngleAxis` untuk komputasi rotasi matematis presisi 90 derajat, dikombinasikan dengan *Coordinate Snapping* guna menjamin sinkronisasi posisi entitas pemain dengan pusat node grid dan mencegah akumulasi kesalahan floating-point.
-* **Random Speed Boost:** Mekanisme ketidakpastian (*unpredictability*) diimplementasikan melalui `Coroutine` yang memodifikasi kecepatan hantu secara dinamis dalam interval acak 5–15 detik, menciptakan tantangan yang tidak dapat diprediksi secara deterministik oleh pemain.
-* **Visual Feedback Real-Time:** Perubahan warna material hantu menjadi ungu saat *speed boost* aktif berfungsi sebagai sinyal visual yang jelas, meningkatkan keterbacaan status AI kepada pemain (*game readability*).
+```
+┌───────────────────────────────────────────────────┐
+│                  GhostAI Loop                     │
+│                                                   │
+│  1. Cek apakah Ghost frozen → delay & retry       │
+│  2. Ambil posisi saat ini → GetNodeFromWorldPoint  │
+│  3. Jalankan Dijkstra(ghost_pos, player_pos)       │
+│  4. Ambil node pertama dari path → nextNode        │
+│  5. Hitung arah gerak (diffX / diffY)              │
+│  6. Panggil CubeRoller.Roll(direction, speed)      │
+│  7. onComplete → WaitAndMove → kembali ke step 1  │
+└───────────────────────────────────────────────────┘
+```
 
-### 2.4 Manajemen Data dan User Experience (UX)
+**Karakteristik utama:**
 
-* **State Lock (`isCollected`):** Flag idempoten pada entitas `Collectible` mencegah *race condition* pada sistem skor, memastikan satu item hanya dapat dikumpulkan satu kali meskipun dipicu secara berulang dalam satu frame.
-* **Hold-to-Quit:** Mekanisme keluar dengan akumulasi `Time.deltaTime` selama 2 detik pada tombol Escape memberikan jeda reflektif bagi pemain, mencegah terminasi sesi yang tidak disengaja.
-* **Score Persistence:** Pemanfaatan variabel `static` untuk mempertahankan data skor selama transisi antar *scene* memilih pendekatan ringan dibandingkan solusi serialisasi penuh (seperti `PlayerPrefs`), yang tepat untuk siklus hidup permainan berskala kecil ini.
+- **Re-Pathfinding per Step:** Ghost menghitung ulang jalur Dijkstra **setiap satu langkah** gerak, menjamin jalur selalu akurat terhadap posisi player terbaru (*reactive pursuit*).
+- **Decision Delay:** Jeda `0.01 detik` antar keputusan mencegah infinite loop dan memberi frame untuk rendering.
+- **Speed Boost Coroutine:** Kecepatan Ghost berfluktuasi secara stokastik antara `normalSpeed` (1×) dan `boostedSpeed` (2×) melalui `RandomSpeedBoostRoutine()`, dengan visual feedback berupa perubahan warna material (merah → ungu).
+
+### 2.4 Mekanika Player — PlayerController
+
+- **Input Handling:** Mendukung **WASD** dan **Arrow Keys** (4-directional discrete movement).
+- **Stamina System:** Implementasi sprint dengan mekanika bertingkat:
+  - *Drain* saat sprint aktif: `currentStamina -= drainRate × Δt`
+  - *Refill* saat idle (dengan delay 0.5s): `currentStamina += refillRate × Δt`
+  - *Cooldown* setelah sprint berhenti: `sprintCooldownDuration = 1.5s`
+  - *Override* saat power-up Unlimited Stamina aktif → stamina selalu penuh.
+- **Grid Validation:** Sebelum bergerak, target node dicek walkability via `GridManager.GetNodeFromWorldPoint()`, memastikan pemain tidak bisa menembus obstacle.
+
+### 2.5 Sistem Pergerakan — CubeRoller
+
+Animasi pergerakan kubus menggunakan teknik **RotateAround** yang memberikan efek rolling realistis:
+
+- Rotasi 90° di sekitar *pivot point* (edge bawah kubus) ke arah gerakan.
+- Kecepatan rotasi: `baseRollSpeed × speedMultiplier` derajat/detik.
+- Setelah rotasi selesai, posisi di-**snap** ke grid melalui rounding:
+  ```csharp
+  transform.position = new Vector3(
+      Mathf.Round(transform.position.x * 2) / 2f,
+      transform.position.y,
+      Mathf.Round(transform.position.z * 2) / 2f
+  );
+  ```
+  Ini menghindari akumulasi floating-point error pada pergerakan berulang.
+
+### 2.6 Sistem Power-Up & Collectible
+
+**Tipe Collectible:**
+
+| Tipe | Efek | Durasi |
+|---|---|---|
+| `Normal` | +10 skor | — |
+| `Invincible` | Player kebal; menyentuh Ghost = Ghost dihancurkan | 5 detik |
+| `Freeze` | Ghost membeku (berhenti bergerak) | 5 detik |
+| `UnlimitedStamina` | Stamina tidak habis saat sprint | 5 detik |
+
+**Mekanisme Spawning:**
+- Hanya **satu** collectible aktif pada satu waktu di arena.
+- Setelah dikumpulkan, collectible berikutnya langsung di-spawn pada node walkable acak.
+- Flag `isCollected` pada `Collectible` mencegah *double-collection* dari trigger event yang tumpang tindih.
+
+**Visual Polish:**
+- Collectible memiliki animasi **rotasi kontinu** dan opsional **bobbing sinusoidal**:
+  `y(t) = y₀ + A · sin(2π · f · t)`
+
+### 2.7 Sistem Portal & Teleportasi
+
+- Portal menggunakan **Trigger-Based Collision** (`OnTriggerEnter`) untuk mendeteksi player.
+- Flag statis `isTeleporting` mencegah *re-entry* saat teleportasi sedang berlangsung.
+- Saat teleportasi: `CubeRoller` dinonaktifkan sementara, velocity direset, posisi dipindahkan ke `destination`, lalu `CubeRoller` diaktifkan kembali setelah cooldown (1.5s).
+
+### 2.8 Manajemen Scene & UI
+
+**Scene Flow:**
+
+```
+MainMenu  ──▶  GameScene  ──▶  GameOver
+   ▲                               │
+   └───────────────────────────────┘
+```
+
+- **3 Scene:** `MainMenu`, `GameScene`, `GameOver`.
+- Transisi scene menggunakan `SceneTransitionManager` dengan efek **fade in/out** melalui `CanvasGroup.alpha` lerp.
+- `DontDestroyOnLoad` pada `SceneTransitionManager` menjamin persistensi lintas scene.
+
+**Fitur UI:**
+
+| Fitur | Implementasi |
+|---|---|
+| **Score Display** | `TextMeshProUGUI` diperbarui real-time via `CollectibleManager`. |
+| **Stamina Bar** | `Slider` dengan perubahan warna dinamis: cyan (normal), abu-abu (cooldown), kuning (unlimited). |
+| **Countdown** | Animasi scale-down 1.5× → 1× pada teks countdown; memblokir input hingga selesai. |
+| **Final Score** | Skor disimpan sebagai `static` property `FinalScore`, persisten antar scene. |
+| **Hold-to-Quit** | Menahan tombol Escape selama 2 detik dengan visual feedback `fillAmount`. |
 
 ---
 
 ## 3. Evaluation
 
-#### 3.1 Kompleksitas Ruang dan Waktu
+### 3.1 Analisis Kompleksitas Waktu
 
-* Time Complexity: O(V + E), karena setiap node dan sisi diperiksa maksimal satu kali dalam gridterstruktur.
-* Space Complexity: O(V) untuk penyimpanan status node pada memori global selama proses pencarian.
-  
-### 3.2 Analisis Correctnes
+#### Dijkstra's Pathfinding — `FindPath()`
 
-* **Terminasi:** Dijamin karena jumlah simpul $|V|$ dalam grid berukuran tetap bersifat finit. Setiap iterasi memindahkan tepat satu simpul dari `openSet` ke `closedSet`, sehingga algoritma pasti berhenti dalam paling banyak $|V|$ iterasi.
-* **Optimalitas:** Dalam graf dengan bobot seragam $w = 1$ dan tanpa bobot negatif, pemilihan greedy berdasarkan `gCost` terkecil dijamin menghasilkan jalur dengan jumlah langkah minimum. Invariant Dijkstra terpenuhi: setiap simpul yang masuk `closedSet` telah memiliki nilai `gCost` yang optimal secara permanen.
-* **Rekonstruksi Jalur:** Mekanisme `RetracePath()` yang menelusuri rantai pointer `parent` secara terjamin akan menghasilkan jalur lengkap dari target kembali ke sumber, selama simpul target berhasil ditemukan.
+Misalkan **V** = jumlah node walkable dan **E** = jumlah edge.
 
-**Catatan:** Implementasi tidak secara eksplisit menangani kasus graf yang tidak terhubung (*disconnected graph*), namun pengembalian nilai `null` berfungsi sebagai sinyal implisit yang dapat ditangkap oleh lapisan logika AI di atasnya.
+**Implementasi saat ini (List — linear scan extract-min):**
+
+```
+T(V, E) = O(V² + E)
+```
+
+- Setiap iterasi: extract-min O(V) dilakukan O(V) kali → O(V²).
+- Relaxation edge: total O(E) dengan `Contains` check tambahan O(V) per neighbor.
+- **Worst case** untuk grid 32 × 32: V = 1.024, E ≤ 4V = 4.096 → **T ≈ O(1.048.576)** operasi per panggilan.
+
+**Jika menggunakan Binary Min-Heap (optimasi):**
+
+```
+T(V, E) = O((V + E) log V)
+```
+
+- Untuk grid yang sama: T ≈ O(5.120 × 10) = **O(51.200)** — **~20× lebih cepat**.
+
+#### Operasi Lainnya
+
+| Operasi | Kompleksitas | Keterangan |
+|---|---|---|
+| `GenerateGrid()` | O(W × H) | Dipanggil sekali saat `Awake()`. Untuk 32 × 32: O(1.024). |
+| `ResetAllNodes()` | O(W × H) | Dipanggil setiap kali `FindPath()` berjalan. |
+| `GetNodeFromWorldPoint()` | O(1) | Konversi koordinat world ke indeks via rumus aritmatika. |
+| `GetRandomWalkableNode()` | O(1) avg, O(100) worst | Sampling acak dengan maks 100 percobaan. |
+| `PlayerController.Update()` | O(1) | Input check, timer decrement, UI update — semua konstan. |
+| **Ghost AI per step** | O(V² + E) | Dijkstra + O(1) move execution. Berjalan ~1× per step (bukan per frame). |
+
+### 3.2 Analisis Kompleksitas Ruang
+
+| Komponen | Ruang | Keterangan |
+|---|---|---|
+| Grid `Node[,]` | O(W × H) | 32 × 32 = 1.024 node |
+| Dijkstra Open Set | O(V) worst case | Maksimum seluruh node walkable |
+| Dijkstra Closed Set | O(V) worst case | Maksimum seluruh node walkable |
+| Path Result | O(V) worst case | Jalur terpanjang mungkin melewati seluruh node |
+| Node fields (`gCost`, `parent`) | O(V) | Tersimpan langsung di node (in-place) |
+| **Total** | **O(W × H)** | Didominasi oleh grid |
+
+Untuk grid default: **~1.024 node × ~40 byte/node ≈ 40 KB** — sangat ringan untuk aplikasi real-time.
+
+### 3.3 Efisiensi Struktur Data
+
+| Struktur | Operasi | Kompleksitas | Catatan |
+|---|---|---|---|
+| `Node[,]` | Akses per indeks | O(1) | Akses langsung via array 2D |
+| `Node[,]` | `GetNodeFromWorldPoint` | O(1) | Konversi koordinat → indeks via aritmatika |
+| `List<Node>` (Open Set) | Extract-Min | O(n) | **Linear scan — bottleneck utama** |
+| `List<Node>` (Open Set) | `Contains` | O(n) | Linear search |
+| `List<Node>` (Open Set) | `Remove` | O(n) | Shift elemen |
+| `HashSet<Node>` (Closed Set) | `Contains` | O(1) amortized | Hash-based lookup |
+| `HashSet<Node>` (Closed Set) | `Add` | O(1) amortized | Hash-based insertion |
+| `GetNeighbors` | Per-node | O(1) | Maksimum 4 tetangga (konstan) |
+
+> **⚠️ Bottleneck:** Penggunaan `List<Node>` sebagai open set menyebabkan extract-min berjalan dalam O(V), bukan O(log V) seperti pada implementasi dengan **Min-Heap / Priority Queue**.
+
+### 3.4 Jaminan Kebenaran (Correctness)
+
+#### Dijkstra Correctness
+
+- **Invariant:** Setiap node yang masuk ke `closedSet` memiliki `gCost` yang merupakan jarak terpendek dari `startNode`.
+- **Proof Sketch:** Karena semua bobot edge w = 1 ≥ 0, greedy extraction dari open set menjamin bahwa tidak ada jalur lebih pendek ke node yang sudah di-close. Ini memenuhi **Dijkstra's Invariant**.
+- **Termination:** Setiap iterasi memindahkan satu node dari `openSet` ke `closedSet`. Karena |V| terbatas, loop terminates dalam ≤ |V| iterasi.
+- **Completeness:** Jika path ada, Dijkstra akan menemukannya. Jika `openSet` kosong sebelum `targetNode` dicapai, fungsi mengembalikan list kosong (handled correctly).
+
+#### Path Retrace Correctness
+
+- `RetracePath()` menelusuri `parent` pointer dari `endNode` ke `startNode`, kemudian `Reverse()`. Ini benar selama `parent` di-set secara akurat oleh relaxation step.
+
+#### Boundary Safety
+
+- `GetNodeFromWorldPoint()` menggunakan `Mathf.Clamp` → indeks selalu dalam batas `[0, gridSize-1]`, mencegah `IndexOutOfRangeException`.
+- `GetNeighbors()` melakukan bounds check eksplisit sebelum mengakses `nodes[checkX, checkY]`.
+
+#### Collision & State Safety
+
+- Flag `isCollected` pada `Collectible` mencegah *double-collection*.
+- Flag statis `isTeleporting` pada `UniversalPortal` mencegah *portal re-entry* saat teleportasi sedang berlangsung.
+
+### 3.5 Identifikasi Bottleneck & Potensi Optimasi
+
+| Masalah | Dampak | Solusi yang Direkomendasikan |
+|---|---|---|
+| Open Set menggunakan `List` | Extract-min O(V) per iterasi → O(V²) total | Ganti dengan `PriorityQueue` / Binary Min-Heap → O((V+E) log V) |
+| Pathfinding state in-place pada Node | Tidak scalable untuk multi-agent | Gunakan **per-query state** (dictionary lokal) alih-alih mutasi node global |
+| `ResetAllNodes()` setiap pathfinding | O(V) overhead per panggilan | Gunakan **versioned reset** (timestamp/counter) untuk lazy reset |
+| `GetNeighbors()` alokasi List baru | Alokasi GC pressure setiap panggilan | Gunakan pre-allocated buffer atau `stackalloc` |
 
 ---
 
 ## 4. Conclusion
 
-Secara keseluruhan, *Deadlock Chase V2* telah berhasil mengimplementasikan sistem permainan berbasis *grid* 2D berukuran 32 × 32 yang dimodelkan sebagai graf tak-berarah berbobot seragam. Fondasi penerapan algortimam dalam permainan ini diperoleh AI hantu yang memanfaatkan algoritma Dijkstra (pendekatan *Greedy*) untuk komputasi pencarian jalur terpendek.
+### Kualitas Arsitektur Teknis
 
-Selain kelengkapan algoritmik, dalam permainanan ini kami menyatukan beberapa elemen penting lainnya, yaitu:
-* **Mekanika Visual & Fisika:** Pergerakan dan rotasi presisi pada pemain, serta integrasi *random speed boost* berbasis *Coroutine* yang memberikan dinamika tantangan tambahan.
-* **Manajemen UX & Data:** Penerapan fitur penunjang pengalaman bermain yang komprehensif, mulai dari *state lock* pada sistem skor, perlindungan terminasi via *hold-to-quit*, hingga *score persistence* antar *scene*.
+Arsitektur *Deadlock Chase* menunjukkan pemisahan tanggung jawab (*separation of concerns*) yang **baik** melalui struktur folder modular (`Algorithms`, `Core`, `Entities`, `Environment`, `Movement`, `UI`) dan penggunaan Singleton pattern untuk manager classes. Desain component-based mengikuti konvensi Unity dengan tepat, memungkinkan extensibility yang wajar. Sistem power-up, stamina, dan scoring diimplementasikan secara bersih dengan state management yang jelas.
 
-Walaupun masih terdapat ruang untuk optimasi performa di masa mendatang, seluruh arsitektur—mulai dari logika navigasi, mekanika permainan, hingga interaksi antarmuka telah kami lihat terintegrasi dengan cukup baik pada saat ini.
+### Optimalitas Algoritma
 
-## Demostrassi Game
+Algoritma Dijkstra menjamin **shortest path yang benar** untuk menyelesaikan masalah pursuit pada graph berbobot seragam. Dalam konteks grid 32 × 32 dengan batasan performa real-time:
 
-<img width="1920" height="1080" alt="Screenshot (199)" src="https://github.com/user-attachments/assets/a00238f5-ba77-4f48-91ba-1fe3cecea6d8" />
+- **Secara fungsional:** Algoritma bekerja **100% benar** — path terpendek selalu ditemukan, boundary selalu aman, dan edge case tertangani dengan baik.
+- **Secara performa:** Implementasi saat ini berjalan dalam O(V²) per panggilan karena penggunaan `List` sebagai open set. Untuk grid 1.024 node, ini menghasilkan ~10⁶ operasi per langkah Ghost — **masih dalam batas toleransi real-time** (~60 FPS) untuk single agent.
+- **Potensi optimasi:** Substitusi `List` dengan `PriorityQueue` / Min-Heap akan menurunkan kompleksitas ke O((V+E) log V), memberikan headroom **~20×** untuk skenario multi-agent atau grid lebih besar.
 
+### Skalabilitas
+
+Penyimpanan data pathfinding secara *in-place* pada node grid (`gCost`, `parent`) membatasi penggunaan concurrent multi-agent pathfinding. Solusinya adalah menggunakan **per-query state** (dictionary lokal) alih-alih mutasi node global, memungkinkan multiple Ghost berjalan secara independen tanpa race condition.
+
+### Verdict
+
+> **Deadlock Chase** memiliki arsitektur yang **solid dan fungsional** untuk skala permainan saat ini, dengan algoritma pathfinding yang **benar dan optimal secara output**. Optimasi pada struktur data open set dan decoupling state pathfinding dari node grid akan menjadikan sistem ini **production-grade** untuk skenario yang lebih kompleks.
+
+---
+
+### 📁 Ringkasan File Proyek
+
+| File | LOC | Peran |
+|---|---|---|
+| `DijkstraPathfinding.cs` | 75 | Algoritma Dijkstra untuk AI pathfinding |
+| `Node.cs` | 25 | Data structure node grid |
+| `GridManager.cs` | 127 | Manajemen grid, neighbor lookup, random spawn |
+| `CollectibleManager.cs` | 79 | Spawning & scoring collectible |
+| `PowerUpManager.cs` | 46 | Aktivasi & durasi power-up |
+| `SceneTransitionManager.cs` | 59 | Transisi scene dengan fade effect |
+| `GhostAI.cs` | 150 | AI musuh dengan Dijkstra + speed boost |
+| `PlayerController.cs` | 167 | Input, sprint, stamina management |
+| `CubeRoller.cs` | 45 | Animasi rolling kubus |
+| `Collectible.cs` | 28 | Collision handler collectible |
+| `CollectibleRotator.cs` | 31 | Animasi visual collectible |
+| `UniversalPortal.cs` | 49 | Sistem teleportasi portal |
+| `CountdownManager.cs` | 54 | Countdown sebelum game dimulai |
+| `GameOverUI.cs` | 15 | Tampilan skor akhir |
+| `HoldToQuit.cs` | 39 | Mekanisme hold-to-quit |
+| `SceneTrigger.cs` | 32 | Tombol navigasi scene |
+| **Total** | **~1.021** | |
