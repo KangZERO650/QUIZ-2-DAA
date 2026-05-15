@@ -1,10 +1,10 @@
 # Analysis Report
 
-| Name              | NRP        |
-|-------------------|------------|
-| Raziq Danish Safaraz          | 5025241258      |
-| Aminnudin Wijaya          | 5025241242      |
-| Herdian Tri Wardhana           | 5025241229      |
+| Name              | NRP        | CLASS |
+|-------------------|------------|------------|
+| Raziq Danish Safaraz          | 5025241258      | |
+| Aminnudin Wijaya          | 5025241242      | E |
+| Herdian Tri Wardhana           | 5025241229      | G |
 
 `Raziq`: designed the user interface and developed the main structure <br>
 `Amin`: handled backend logic and implemented Djikstra Algorithm <br>
