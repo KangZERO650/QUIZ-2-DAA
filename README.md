@@ -187,11 +187,11 @@ The following is the Ghost AI decision flow for each step:
 │                  GhostAI Loop                     │
 │                                                   │
 │  1. Check if Ghost is frozen → delay & retry      │
-│  2. Get current position → GetNodeFromWorldPoint   │
-│  3. Run Dijkstra(ghost_pos, player_pos)            │
-│  4. Get the first node from path → nextNode        │
-│  5. Calculate movement direction (diffX / diffY)   │
-│  6. Call CubeRoller.Roll(direction, speed)          │
+│  2. Get current position → GetNodeFromWorldPoint  │
+│  3. Run Dijkstra(ghost_pos, player_pos)           │
+│  4. Get the first node from path → nextNode       │
+│  5. Calculate movement direction (diffX / diffY)  │
+│  6. Call CubeRoller.Roll(direction, speed)        │
 │  7. onComplete → WaitAndMove → return to step 1   │
 └───────────────────────────────────────────────────┘
 ```
