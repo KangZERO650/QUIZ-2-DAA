@@ -134,6 +134,47 @@ Assets/Scripts/
 | `HashSet<Node>` (Closed Set) | `DijkstraPathfinding.cs` | Himpunan node yang telah dieksplorasi; lookup O(1) amortized. |
 | `List<Node>` (Path) | `GhostAI.cs` | Menyimpan jalur hasil pathfinding dari Ghost ke Player. |
 
+**Definisi `Node` — unit terkecil dalam graph grid (`Node.cs`):**
+```csharp
+public class Node
+{
+    public Vector2Int gridPosition; // Koordinat grid (x, y)
+    public Vector3 worldPosition;   // Posisi 3D di dunia
+    public bool isWalkable;         // Bisa dilewati atau obstacle
+    public int gCost;               // Jarak dari startNode (Dijkstra)
+    public Node parent;             // Pointer balik untuk retrace jalur
+
+    public void ResetNode()
+    {
+        gCost = int.MaxValue; // Inisialisasi sebagai ∞ (belum dijelajahi)
+        parent = null;
+    }
+}
+```
+
+**Pembuatan grid via Physics Scan (`GridManager.GenerateGrid`):**
+```csharp
+public void GenerateGrid()
+{
+    nodes = new Node[gridSize.x, gridSize.y];
+    Vector3 worldBottomLeft = transform.position
+        - Vector3.right * gridSize.x / 2
+        - Vector3.forward * gridSize.y / 2;
+
+    for (int x = 0; x < gridSize.x; x++)
+        for (int y = 0; y < gridSize.y; y++)
+        {
+            Vector3 worldPoint = worldBottomLeft
+                + Vector3.right * (x + 0.5f)
+                + Vector3.forward * (y + 0.5f);
+            // Deteksi obstacle via sphere-cast ke layer obstacle
+            bool isObstacle = Physics.CheckSphere(
+                worldPoint + Vector3.up * 0.5f, 0.3f, obstacleMask);
+            nodes[x, y] = new Node(new Vector2Int(x, y), worldPoint, !isObstacle);
+        }
+}
+```
+
 ### 2.3 Mekanika AI — GhostAI
 
 Berikut alur keputusan Ghost AI setiap langkah:
@@ -158,6 +199,88 @@ Berikut alur keputusan Ghost AI setiap langkah:
 - **Decision Delay:** Jeda `0.01 detik` antar keputusan mencegah infinite loop dan memberi frame untuk rendering.
 - **Speed Boost Coroutine:** Kecepatan Ghost berfluktuasi secara stokastik antara `normalSpeed` (1×) dan `boostedSpeed` (2×) melalui `RandomSpeedBoostRoutine()`, dengan visual feedback berupa perubahan warna material (merah → ungu).
 
+**Implementasi Dijkstra's pathfinding (`DijkstraPathfinding.cs`):**
+```csharp
+public static List<Node> FindPath(Vector3 startPos, Vector3 targetPos)
+{
+    Node startNode = GridManager.Instance.GetNodeFromWorldPoint(startPos);
+    Node targetNode = GridManager.Instance.GetNodeFromWorldPoint(targetPos);
+
+    List<Node> openSet = new List<Node>();
+    HashSet<Node> closedSet = new HashSet<Node>();
+    GridManager.Instance.ResetAllNodes();
+
+    startNode.gCost = 0;
+    openSet.Add(startNode);
+
+    while (openSet.Count > 0)
+    {
+        // Extract-Min: linear scan O(V) — bottleneck utama
+        Node current = openSet[0];
+        for (int i = 1; i < openSet.Count; i++)
+            if (openSet[i].gCost < current.gCost) current = openSet[i];
+
+        openSet.Remove(current);
+        closedSet.Add(current);
+
+        if (current == targetNode) return RetracePath(startNode, targetNode);
+
+        foreach (Node neighbor in GridManager.Instance.GetNeighbors(current))
+        {
+            if (!neighbor.isWalkable || closedSet.Contains(neighbor)) continue;
+            int newCost = current.gCost + 1; // bobot edge seragam w=1
+            if (newCost < neighbor.gCost)
+            {
+                neighbor.gCost = newCost;
+                neighbor.parent = current;
+                if (!openSet.Contains(neighbor)) openSet.Add(neighbor);
+            }
+        }
+    }
+    return new List<Node>(); // path tidak ditemukan
+}
+```
+
+**Eksekusi langkah Ghost setiap giliran (`GhostAI.MakeNextMove`):**
+```csharp
+void MakeNextMove()
+{
+    if (PowerUpManager.Instance.IsGhostFrozen)
+    { Invoke(nameof(MakeNextMove), 0.5f); return; } // Freeze power-up aktif
+
+    Node currentNode = GridManager.Instance.GetNodeFromWorldPoint(transform.position);
+    currentPath = DijkstraPathfinding.FindPath(transform.position, playerTransform.position);
+
+    if (currentPath != null && currentPath.Count > 0)
+    {
+        Node nextNode = currentPath[0];
+        int diffX = nextNode.gridPosition.x - currentNode.gridPosition.x;
+        int diffY = nextNode.gridPosition.y - currentNode.gridPosition.y;
+
+        Vector3 moveDir = diffX != 0
+            ? new Vector3(Mathf.Clamp(diffX, -1, 1), 0, 0)
+            : new Vector3(0, 0, Mathf.Clamp(diffY, -1, 1));
+
+        roller.Roll(moveDir, ghostSpeedMultiplier, () => StartCoroutine(WaitAndMove()));
+    }
+}
+```
+
+**Speed boost stokastik (`GhostAI.RandomSpeedBoostRoutine`):**
+```csharp
+private IEnumerator RandomSpeedBoostRoutine()
+{
+    while (true)
+    {
+        yield return new WaitForSeconds(Random.Range(minWaitBoost, maxWaitBoost));
+        ghostSpeedMultiplier = boostedSpeed;
+        ghostRenderer.material.color = boostColor; // visual: merah → ungu
+        yield return new WaitForSeconds(boostDuration);
+        ghostSpeedMultiplier = normalSpeed;
+        ghostRenderer.material.color = normalColor; // kembali merah
+    }
+}
+
 ### 2.4 Mekanika Player — PlayerController
 
 - **Input Handling:** Mendukung **WASD** dan **Arrow Keys** (4-directional discrete movement).
@@ -167,6 +290,38 @@ Berikut alur keputusan Ghost AI setiap langkah:
   - *Cooldown* setelah sprint berhenti: `sprintCooldownDuration = 1.5s`
   - *Override* saat power-up Unlimited Stamina aktif → stamina selalu penuh.
 - **Grid Validation:** Sebelum bergerak, target node dicek walkability via `GridManager.GetNodeFromWorldPoint()`, memastikan pemain tidak bisa menembus obstacle.
+
+**Logika stamina dan sprint cooldown (`PlayerController.HandleTimers`):**
+```csharp
+void HandleTimers()
+{
+    bool isUnlimited = PowerUpManager.Instance != null
+        && PowerUpManager.Instance.IsUnlimitedStamina;
+
+    // Hitung mundur sprint cooldown
+    if (!canSprint)
+    {
+        sprintCooldownTimer -= Time.deltaTime;
+        if (sprintCooldownTimer <= 0) canSprint = true;
+    }
+
+    if (isSprinting && roller.IsRolling)
+    {
+        if (!isUnlimited)
+        {
+            currentStamina -= drainRate * Time.deltaTime;
+            if (currentStamina <= 0) { currentStamina = 0; isSprinting = false; }
+        }
+        else currentStamina = maxStamina; // power-up unlimited stamina
+    }
+    else if (currentStamina < maxStamina)
+    {
+        // Refill setelah delay 0.5s
+        if (refillTimer > 0) refillTimer -= Time.deltaTime;
+        else currentStamina += refillRate * Time.deltaTime;
+    }
+    currentStamina = Mathf.Clamp(currentStamina, 0, maxStamina);
+}
 
 ### 2.5 Sistem Pergerakan — CubeRoller
 
@@ -200,6 +355,55 @@ Animasi pergerakan kubus menggunakan teknik **RotateAround** yang memberikan efe
 - Setelah dikumpulkan, collectible berikutnya langsung di-spawn pada node walkable acak.
 - Flag `isCollected` pada `Collectible` mencegah *double-collection* dari trigger event yang tumpang tindih.
 
+**Deteksi pengambilan collectible (`Collectible.cs`):**
+```csharp
+public enum CollectibleType { Normal, Invincible, Freeze, UnlimitedStamina }
+
+private void OnTriggerEnter(Collider other)
+{
+    if (isCollected) return; // guard: cegah double-trigger
+    if (other.CompareTag("Player"))
+    {
+        isCollected = true;
+        CollectibleManager.Instance.OnCollected(this); // update skor & spawn berikutnya
+        Destroy(gameObject);
+    }
+}
+```
+
+**Update skor dan aktivasi power-up (`CollectibleManager.OnCollected`):**
+```csharp
+public void OnCollected(Collectible item)
+{
+    currentScore += item.scoreValue;
+    scoreText.text = currentScore.ToString();
+    FinalScore = currentScore; // disimpan sebagai static untuk GameOver screen
+
+    if (item.type != CollectibleType.Normal)
+        PowerUpManager.Instance.ActivatePowerUp(item.type);
+
+    currentSpawnedItem = null;
+    SpawnNext(); // langsung spawn collectible berikutnya
+}
+```
+
+**Aktivasi power-up via Coroutine (`PowerUpManager.cs`):**
+```csharp
+public void ActivatePowerUp(CollectibleType type)
+{
+    StopCoroutine(type.ToString()); // reset jika masih aktif
+    StartCoroutine(type.ToString());
+}
+
+IEnumerator Freeze()
+{
+    IsGhostFrozen = true;  // GhostAI akan cek flag ini setiap langkah
+    yield return new WaitForSeconds(powerUpDuration);
+    IsGhostFrozen = false;
+}
+// Invincible dan UnlimitedStamina mengikuti pola yang sama
+```
+
 **Visual Polish:**
 - Collectible memiliki animasi **rotasi kontinu** dan opsional **bobbing sinusoidal**:
   `y(t) = y₀ + A · sin(2π · f · t)`
@@ -209,6 +413,32 @@ Animasi pergerakan kubus menggunakan teknik **RotateAround** yang memberikan efe
 - Portal menggunakan **Trigger-Based Collision** (`OnTriggerEnter`) untuk mendeteksi player.
 - Flag statis `isTeleporting` mencegah *re-entry* saat teleportasi sedang berlangsung.
 - Saat teleportasi: `CubeRoller` dinonaktifkan sementara, velocity direset, posisi dipindahkan ke `destination`, lalu `CubeRoller` diaktifkan kembali setelah cooldown (1.5s).
+
+**Urutan teleportasi (`UniversalPortal.TeleportSequence`):**
+```csharp
+private IEnumerator TeleportSequence(Transform playerTransform)
+{
+    isTeleporting = true;
+
+    // 1. Nonaktifkan movement selama teleportasi
+    CubeRoller roller = playerTransform.GetComponent<CubeRoller>();
+    if (roller != null) roller.enabled = false;
+
+    // 2. Reset momentum
+    Rigidbody rb = playerTransform.GetComponent<Rigidbody>();
+    if (rb != null) { rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero; }
+
+    // 3. Snap posisi ke node tujuan (tetap pada grid)
+    Node targetNode = GridManager.Instance.GetNodeFromWorldPoint(destination.position);
+    if (targetNode != null)
+        playerTransform.position = targetNode.worldPosition + Vector3.up * 0.5f
+            + destination.forward;
+
+    // 4. Aktifkan kembali setelah teleportasi
+    if (roller != null) roller.enabled = true;
+    yield return new WaitForSeconds(cooldown); // cooldown 1.5s cegah re-entry
+    isTeleporting = false;
+}
 
 ### 2.8 Manajemen Scene & UI
 
