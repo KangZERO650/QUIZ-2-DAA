@@ -2,7 +2,7 @@
 
 | Name              | NRP        | CLASS |
 |-------------------|------------|------------|
-| Raziq Danish Safaraz          | 5025241258      | |
+| Raziq Danish Safaraz          | 5025241258      | E |
 | Aminnudin Wijaya          | 5025241242      | E |
 | Herdian Tri Wardhana           | 5025241229      | G |
 
@@ -14,26 +14,41 @@
 
 ## Table of Contents
 
-- [1. Design](#1-design)
-  - [1.1 Game Description](#11-game-description)
-  - [1.2 Game Space Design](#12-game-space-design)
-  - [1.3 Entity Elements](#13-entity-elements)
-  - [1.4 Algorithm Paradigm](#14-algorithm-paradigm)
-- [2. Implementation](#2-implementation)
-  - [2.1 Architecture & Project Structure](#21-architecture--project-structure)
-  - [2.2 Core Data Structures](#22-core-data-structures)
-  - [2.3 AI Mechanics — GhostAI](#23-ai-mechanics--ghostai)
-  - [2.4 Player Mechanics — PlayerController](#24-player-mechanics--playercontroller)
-  - [2.5 Movement System — CubeRoller](#25-movement-system--cuberoller)
-  - [2.6 Power-Up & Collectible System](#26-power-up--collectible-system)
-  - [2.7 Portal & Teleportation System](#27-portal--teleportation-system)
-  - [2.8 Scene & UI Management](#28-scene--ui-management)
-- [3. Evaluation](#3-evaluation)
-  - [3.1 Time Complexity Analysis](#31-time-complexity-analysis)
-  - [3.2 Space Complexity Analysis](#32-space-complexity-analysis)
-  - [3.3 Data Structure Efficiency](#33-data-structure-efficiency)
-  - [3.4 Correctness Guarantees](#34-correctness-guarantees)
-- [4. Conclusion](#4-conclusion)
+- [Analysis Report](#analysis-report)
+  - [Table of Contents](#table-of-contents)
+  - [1. Design](#1-design)
+    - [1.1 Game Description](#11-game-description)
+    - [1.2 Game Space Design](#12-game-space-design)
+    - [1.3 Entity Elements](#13-entity-elements)
+    - [1.4 Algorithm Paradigm](#14-algorithm-paradigm)
+      - [A. Dijkstra's Shortest Path Algorithm](#a-dijkstras-shortest-path-algorithm)
+      - [B. Greedy Heuristic — Speed Boost AI](#b-greedy-heuristic--speed-boost-ai)
+      - [C. Stochastic Spawning (Randomized Greedy)](#c-stochastic-spawning-randomized-greedy)
+  - [2. Implementation](#2-implementation)
+    - [2.1 Architecture \& Project Structure](#21-architecture--project-structure)
+    - [2.2 Core Data Structures](#22-core-data-structures)
+    - [2.3 AI Mechanics — GhostAI](#23-ai-mechanics--ghostai)
+    - [2.4 Player Mechanics — PlayerController](#24-player-mechanics--playercontroller)
+    - [2.5 Movement System — CubeRoller](#25-movement-system--cuberoller)
+    - [2.6 Power-Up \& Collectible System](#26-power-up--collectible-system)
+    - [2.7 Portal \& Teleportation System](#27-portal--teleportation-system)
+    - [2.8 Scene \& UI Management](#28-scene--ui-management)
+  - [3. Evaluation](#3-evaluation)
+    - [3.1 Time Complexity Analysis](#31-time-complexity-analysis)
+      - [Dijkstra's Pathfinding — `FindPath()`](#dijkstras-pathfinding--findpath)
+      - [Other Operations](#other-operations)
+    - [3.2 Space Complexity Analysis](#32-space-complexity-analysis)
+    - [3.3 Data Structure Efficiency](#33-data-structure-efficiency)
+    - [3.4 Correctness Guarantees](#34-correctness-guarantees)
+      - [Dijkstra Correctness](#dijkstra-correctness)
+      - [Path Retrace Correctness](#path-retrace-correctness)
+      - [Boundary Safety](#boundary-safety)
+      - [Collision \& State Safety](#collision--state-safety)
+  - [4. Conclusion](#4-conclusion)
+    - [Technical Architecture Quality](#technical-architecture-quality)
+    - [Algorithm Optimality](#algorithm-optimality)
+    - [Scalability](#scalability)
+    - [Verdict](#verdict)
 
 ---
 
